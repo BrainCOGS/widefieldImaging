@@ -1,0 +1,53 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1671\cocoasubrtf500
+{\fonttbl\f0\fswiss\fcharset0 Helvetica-Bold;\f1\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww10800\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\b\fs24 \cf0 QUICK FUNCTION REFERENCE\
+\
+\
+General / housekeeping:\
+\
+
+\f1\b0 - widefieldParams() is a class object that defines default analysis parameters, file paths, plotting defaults etc. It also has a few convenience class methods, e.g. \
+\
+wf = widefieldParams;\
+wf.getRootDir() returns root directory\
+wf.getMouseRecs(mouseID) returns list of all relevant recording sessions for mouse \'91mouseID\'92\
+\
+- widefield_recLs() is a class object with lists of (incomplete) paths for all imaging sessions used in the analysis. For example, widefield_recLS.BVrecs_gcamp will return a list of all sessions used in Pinto et al., 2018, in prep (i.e. sessions acquired during behavior, with blue-violet hemodynamic correction, and pre-selected based on performance).  e.g. #2: widefield_recLs.BVrecs_spont for 10-min long recordings of mice running in the dark.
+\f0\b \
+\
+\
+Preprocessing: \
+\
+
+\f1\b0 - wideFieldPreProc() reads raw tif stacks and saves info.mat file with meta info (eg frame rate), dff.mat with hemodynamic-corrected, spatially-binned, vasculature-masked \\DeltaF/F, rawf.mat with intermediate analyses (e.g. F matrices, uncorrected blue and violet \\DeltaF/F etc).\
+\
+- fileCellArrayWidefield_fromRecLs() takes a list of recordings (e.g. widefield_recLs.BVrecs_gcamp) and returns a list of corresponding behavioral log files.\
+\
+- summarizeVirmenLog_widefield() takes a pair of imaging/behavioral log paths (output of previous function) and saves a flattened log with behavioral sync information.\
+\
+- extractDffFromROI() registers session to a pre-saved reference ROI for that mouse and returns a frames x ROI matrix\
+\
+\
+
+\f0\b Some convenience functions\
+
+\f1\b0 \
+- alignTrials() produces trial-aligned activity matrices for different trial types, e.g. correct right trials, error trials of low difficulty etc. Refer to function for full list\
+\
+- getTrialIdx() for lists of trial indices satisfying search criteria, e.g. correct right trials, error trials of low difficulty etc. Refer to function for full list\
+\
+- conditionDffMat() to convert back and forth between a 3d image stack and a 2d frames x Pxl matrix excluding NaN pixels (i.e. vasculature mask) \
+\
+- imBinSpace() to spatially bin 3d image stackes\
+\
+- bintime() to bin in time\
+\
+- getSingleROIpxlDff() for a frames x Pxl matrix for only a given ROI, eg V1\
+\
+\
+}
