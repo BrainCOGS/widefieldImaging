@@ -6,16 +6,13 @@ function dffFit = dffGLM(dff,logSumm,ROIflag,derivFlag,cfg,ROIlbl,saveFlag,visGu
 % input:
 %   dff: can be either string with recording path or a frames x ROI matrix
 %        (default: pwd)
-%   ROIflag: true for ROIs, false for pxls. 
+%   ROIflag: true for ROIs, false for pxls.
 %   derivFlag: true to take derivative of dff before decoding, as a dirty form
 %              of "deconvolution" (not recommended)(default: false)
 %   cfg: structure with analysis config, refer to bottom of function. If
 %        empty will be filled with defaults (recommended)
 %   ROIlbl: for ROIs, cell array with names (optional, if empty or not an
 %           input labels will be loaded from disk)
-%   saveFlag: true to save analysis results (default)
-%   visGuideFlag: true will analyze visuall-guided instead of towers task
-%   (default false)
 %
 % output is a data structure with analysis results
 
@@ -57,6 +54,14 @@ else
 end
 cfg.visGuideFlag = visGuideFlag;
 
+if sum(strcmpi(cfg.predList,'ROI')) > 0
+  fn = [fn '_corr'];
+end
+
+if sum(strcmpi(cfg.predList,'auto')) > 0
+  fn = [fn '_autoRegr'];
+end
+
 tic; fprintf('FITTING %s\n\tBuilding matrices...',upper(fn));
 
 try
@@ -77,11 +82,11 @@ end
 
 if cfg.diffFlag % fast dirty deconvolution by derivative
   dff = [zeros(1,size(dff,2)); diff(dff,1,1)];
-  fn  = [fn '_deriv']; 
+  fn  = [fn '_deriv'];
 end
 if cfg.zscoreFlag; dff = zscore(dff); end
 
-  
+
 %% align trials (with parallelization)
 poolobj = gcp('nocreate');
 if isempty(poolobj); poolobj = parpool; end
@@ -162,7 +167,7 @@ parfor iROI = 1:nROI %#ok<PFUIX>
     end
     pred              = X(:,:,iROI);
   end
-  
+
   % add jitter to all-zero pixels
   allzeros = sum(pred==0) == size(pred,1);
   pred(:,allzeros) = pred(:,allzeros) + jitter(1) * randn(size(pred(:,allzeros)));
@@ -171,12 +176,12 @@ parfor iROI = 1:nROI %#ok<PFUIX>
     case 'lasso'
       [coeff{iROI}, fitInfo{iROI}] ...
                      = elasticNetRegression_LP( pred, target, [], ...
-                                            {'LeastR',jitter}, l2, lambda, pseudoExp, [], [] ); 
+                                            {'LeastR',jitter}, l2, lambda, pseudoExp, [], [] );
       fitInfo{iROI} = rmfield(fitInfo{iROI},{'X','y','w'});
 
     case 'ridge'
       [coeff{iROI}, fitInfo{iROI}] ...
-                     = ridgeRegression( pred, target, lambda, pseudoExp, [], jitter); 
+                     = ridgeRegression( pred, target, lambda, pseudoExp, [], jitter);
   end
 
   bestCoeff{iROI}  = coeff{iROI}(:,fitInfo{iROI}.Index1SE);
@@ -207,10 +212,10 @@ parfor iROI = 1:nROI %#ok<PFUIX>
       end
     end
   end
-  
-  
+
+
   accuracy{iROI}      = nanmean(predAccuracy(:));
-  accInterval{iROI}   = quantile(predAccuracy(:), cl); 
+  accInterval{iROI}   = quantile(predAccuracy(:), cl);
   [row,col]           = find(predAccuracy==max(predAccuracy(:)),1,'first');
   bestpred_yhat{iROI} = prediction{row,col};
   bestpred_y{iROI}    = predTruth{row,col};
@@ -232,11 +237,11 @@ for iROI = 1:nROI
   dffFit.accuracyCI(iROI,:) = accInterval{iROI};
 end
 
-clear bestCoeff accuracy coeff 
+clear bestCoeff accuracy coeff
 
 %% do shuffling if necessary
 if cfg.numShuffles > 1
-  
+
   tic;
   fprintf('\tfitting and cross-validating models (shuffles)...');
   bestCoeff             = cell(cfg.numShuffles,nROI);
@@ -246,8 +251,8 @@ if cfg.numShuffles > 1
   numCVSamples          = cfg.numCVSamplesShuffle; % in each shuffle just do 5 runs of xval
   iPseudo               = pseudoExp(1:numCVSamples);
 %   numCVFolds            = cfg.numCVFolds;
-  
-  
+
+
   % use best lambda from actual data
   bestLambdas           = zeros(1,iROI);
   for iROI = 1:nROI
@@ -269,30 +274,30 @@ if cfg.numShuffles > 1
       end
       pred              = X(:,:,iROI);
     end
-    
-    % add jitter to all-zero pixels    
+
+    % add jitter to all-zero pixels
     allzeros = sum(pred==0) == size(pred,1);
     pred(:,allzeros) = pred(:,allzeros) + jitter(1) * randn(size(pred(:,allzeros))); %#ok<PFBNS>
-    
-    for iShuff = 1:numShuff 
-      
+
+    for iShuff = 1:numShuff
+
       iTarget         = target(randperm(numel(target)));
-      
-      switch method 
+
+      switch method
         case 'lasso'
           [bestCoeff{iShuff,iROI}, sfitInfo] = elasticNetRegression_LP( pred, iTarget, [],                         ...
                                                                       {'LeastR',jitter}, l2, bestLambdas(iROI), ...
                                                                       iPseudo, [], [] );
-          
+
         case 'ridge'
           [bestCoeff{iShuff,iROI}, sfitInfo] = ridgeRegression( pred, iTarget, bestLambdas(iROI), ...
                                                                  iPseudo, [], jitter);
-          
+
       end
 
       % Compute accuracy as the fraction of correct predictions, with spreads across CV samples
       predAccuracy      = nan(size(sfitInfo.CVTestPrediction));
-      
+
       % Cross-validated prediction accuracy
       for iMC = 1:size(sfitInfo.CVTestPrediction,1)
         for iFold = 1:size(sfitInfo.CVTestPrediction,2)
@@ -313,34 +318,34 @@ if cfg.numShuffles > 1
           end
         end
       end
-      
+
       accuracy{iShuff,iROI} = nanmean(predAccuracy(:));
       all_accuracy{iROI}    = [all_accuracy{iROI}; predAccuracy(:)];
     end
     all_accuracy{iROI}      = all_accuracy{iROI}(~isnan(all_accuracy{iROI}));
   end
-  
+
   dffFit.shuffle.coeffs        = cell2mat(bestCoeff);
   dffFit.shuffle.accuracy      = cell2mat(accuracy);
-  
+
   for iROI = 1:nROI
     dffFit.isSig(iROI) = dffFit.accuracy(iROI) > prctile(all_accuracy{iROI},95);
   end
-  
+
   fprintf(' done after %1.1f min\n',toc/60)
 end
 
 %% shut down parallel pool
 delete(poolobj);
 
-%% save 
+%% save
 if ~saveFlag; return; end
 save(fn,'dffFit','-v7.3')
 if ~ROIflag; save(fn,'bc','-append'); end
 
 %% plot
 if ROIflag && cfg.plotFlag
-  
+
   wf      = widefieldParams;
   if sum(strcmpi(dffFit.cfg.predList,'ROI')) > 0
     [nr,nc] = subplotOrg(numel(dffFit.cfg.predList)+1,4);
@@ -350,12 +355,12 @@ if ROIflag && cfg.plotFlag
   colors  = jet(nROI);
   figure;
   wf.applyFigDefaults(gcf,[nc nr+2],'w')
-  
+
   for iPred = 1:numel(dffFit.cfg.predList)
     if strcmpi(dffFit.cfg.predList{iPred},'ROI'); continue; end
     isPred = arrayfun(@(x)(~isempty(strmatch(dffFit.cfg.predList{iPred},x))),dffFit.predLbls);
     nlags  = sum(isPred);
-    
+
     subplot(nr,nc,iPred); hold on
     if nlags > 1
       switch dffFit.cfg.timeOrSpace
@@ -378,11 +383,11 @@ if ROIflag && cfg.plotFlag
       rotateXLabels(gca,60);
       wf.applyAxisLbls(gca,[],'Weight (a.u.)',dffFit.cfg.predList{iPred})
     end
-    
+
     wf.applyAxisDefaults(gca,'k'); axis tight
 %     if iPred == 1; legend(ROIlbl,'location','southoutside','position',[.01 .5 .12 .3]); end
   end
-  
+
   if sum(strcmpi(dffFit.cfg.predList,'ROI')) > 0
     subplot(nr,nc,numel(cfg.predList)); hold on
   else
@@ -395,7 +400,7 @@ if ROIflag && cfg.plotFlag
   rotateXLabels(gca,90);
   wf.applyAxisLbls(gca,[],'r (data vs. pred)','Model g.o.f.')
   axis tight
-  yl = get(gca,'ylim'); 
+  yl = get(gca,'ylim');
   text(nROI,yl(1)-diff(yl)*.4,upper(sprintf('GLM, %s, %s',cfg.method,cfg.timeOrSpace)),...
        'fontsize',13,'horizontalAlignment','right')
   saveas(gcf,fn);
@@ -427,12 +432,12 @@ switch cfg.timeOrSpace
       else
         lastt = logSumm.keyFrames{trialidx(iTrial)}(end); % reward time is last point if no rw predictor
       end
-      
+
       idx     = 1:find(taxis < logSumm.time{trialidx(iTrial)}(lastt), 1, 'last');
-      thisy   = squeeze(dffTrials(iTrial,idx,:)); 
+      thisy   = squeeze(dffTrials(iTrial,idx,:));
       trialID(end+1:end+numel(idx),:) = ones(numel(idx),1).*iTrial;
       y(end+1:end+numel(idx),:)       = thisy;
-      
+
       %% add predictors to X, with lags if necessary
       thisX = [];
       for iPred = 1:numel(cfg.predList)
@@ -443,11 +448,11 @@ switch cfg.timeOrSpace
             else
               towers = logSumm.cueOnset_R{trialidx(iTrial)};
             end
-            
+
             toweridx  = arrayfun(@(x)(find(taxis >= x,1,'first')),towers);
             thisvec   = zeros(numel(idx),1);
             thisvec(toweridx) = 1;
-          
+
           case 'y'
             thisvec   = zeros(numel(idx),1);
             for iT = 1:numel(thisvec)
@@ -456,27 +461,27 @@ switch cfg.timeOrSpace
                             find(logSumm.time{trialidx(iTrial)} < taxis(iT+1),1,'last')]);
               thisvec(iT) = mean(logSumm.pos{trialidx(iTrial)}(iter,2));
             end
-            
+
           case 'speed'
             thisvec   = zeros(numel(idx),1);
             for iT = 1:numel(thisvec)
               iter        = find(logSumm.time{trialidx(iTrial)} >= taxis(iT),1,'first'): ...
                             min([size(logSumm.displ{trialidx(iTrial)},1) ...
                             find(logSumm.time{trialidx(iTrial)} < taxis(iT+1),1,'last')]);
-              displ       = mean(sqrt(sum(logSumm.displ{trialidx(iTrial)}(iter,1:2).^2,2))); 
+              displ       = mean(sqrt(sum(logSumm.displ{trialidx(iTrial)}(iter,1:2).^2,2)));
               thisvec(iT) = displ / logSumm.frameRateVirmen;
             end
-          
+
           case 'd\theta/dt'
             thisvec   = zeros(numel(idx),1);
             for iT = 1:numel(thisvec)
               iter        = find(logSumm.time{trialidx(iTrial)} >= taxis(iT),1,'first'): ...
                             min([size(logSumm.displ{trialidx(iTrial)},1) ...
                             find(logSumm.time{trialidx(iTrial)} < taxis(iT+1),1,'last')]);
-              displ       = mean(logSumm.displ{trialidx(iTrial)}(iter,3)); 
+              displ       = mean(logSumm.displ{trialidx(iTrial)}(iter,3));
               thisvec(iT) = displ / logSumm.frameRateVirmen;
             end
-            
+
           case '\theta'
             thisvec   = zeros(numel(idx),1);
             for iT = 1:numel(thisvec)
@@ -485,34 +490,34 @@ switch cfg.timeOrSpace
                             find(logSumm.time{trialidx(iTrial)} < taxis(iT+1),1,'last')]);
               thisvec(iT) = mean(logSumm.pos{trialidx(iTrial)}(iter,3));
             end
-          
+
           case '\Delta_bins'
             thisvec   = zeros(numel(idx),numel(cfg.evidenceBins)-1);
             for iT = 1:size(thisvec,1)
               thisev             = sum(logSumm.cueOnset_R{trialidx(iTrial)} <= taxis(iT)) - ...
                                    sum(logSumm.cueOnset_L{trialidx(iTrial)} <= taxis(iT));
-              binidx             = find(cfg.evidenceBins <= thisev,1,'last');       
-              thisvec(iT,binidx) = 1;            
+              binidx             = find(cfg.evidenceBins <= thisev,1,'last');
+              thisvec(iT,binidx) = 1;
             end
-            
+
           case '\Delta'
             thisvec   = zeros(numel(idx),1);
             for iT = 1:numel(thisvec)
               thisvec(iT) = sum(logSumm.cueOnset_R{trialidx(iTrial)} <= taxis(iT)) - ...
                             sum(logSumm.cueOnset_L{trialidx(iTrial)} <= taxis(iT));
             end
-          
+
           case 'abs(\Delta)'
             thisvec   = zeros(numel(idx),1);
             for iT = 1:numel(thisvec)
               thisvec(iT) = abs(sum(logSumm.cueOnset_R{trialidx(iTrial)} <= taxis(iT)) - ...
                                 sum(logSumm.cueOnset_L{trialidx(iTrial)} <= taxis(iT)));
             end
-            
+
           case 'ch'
             isLeft  = logSumm.choice(trialidx(iTrial)) == analysisParams.leftCode;
             thisvec = ones(numel(idx),1) - 2.*ones(numel(idx),1).*isLeft;
-            
+
           case 'prevch'
             if trialidx(iTrial) == 1
               thisvec = zeros(numel(idx),1);
@@ -520,7 +525,7 @@ switch cfg.timeOrSpace
               isLeft  = logSumm.choice(trialidx(iTrial)-1) == analysisParams.leftCode;
               thisvec = ones(numel(idx),1) - 2.*ones(numel(idx),1).*isLeft;
             end
-            
+
           case 'prevrw'
             if trialidx(iTrial) == 1
               thisvec = zeros(numel(idx),1);
@@ -528,154 +533,22 @@ switch cfg.timeOrSpace
               wasRW   = logSumm.choice(trialidx(iTrial)-1) == logSumm.trialType(trialidx(iTrial)-1);
               thisvec = ones(numel(idx),1) - 2.*ones(numel(idx),1).*wasRW;
             end
-            
+
           case 'rw'
             thisvec = zeros(numel(idx),1);
             rwt     = logSumm.time{trialidx(iTrial)}(logSumm.keyFrames{trialidx(iTrial)}(end));
             idx     = find(taxis >= rwt,1,'first');
             thisvec(idx) = 1;
-            
+
           case 'ROI'
             continue
-        end
-        
-        % add lags
-        nlags     = round(cfg.predLagSec{iPred} / mode(diff(taxis))); 
-        lagct     = 1;
-        vecs      = zeros(size(thisvec,1),sum(nlags)+1);
-        for iLag = -nlags(1):nlags(2)
-          if iLag < 0
-            shiftvec = [thisvec(-iLag+1:end); zeros(abs(iLag),1)];
-          elseif iLag > 0
-            shiftvec = [zeros(abs(iLag),1); thisvec(1:end-iLag)];
-          else
-            shiftvec = thisvec;
-          end
-          
-          vecs(:,lagct) = shiftvec;
-          if iTrial == 1
-            predLbls{end+1} = [cfg.predList{iPred} num2str(iLag)];
-          end
-          lagct = lagct+1;
-        end
-        
-        thisX(:,end+1:end+size(vecs,2)) = vecs; 
-      end
-      
-      X(end+1:end+size(thisX,1),:) = thisX;
-      
-    end
-    
-  case 'space'
-    for iTrial = 1:numel(trialidx)
-      
-      idx     = 1:numel(cfg.posBins(1:end-1));
-      taxis   = cfg.posBins;
-      thisy   = squeeze(dffTrials(iTrial,idx,:));
-      trialID(end+1:end+numel(idx),:) = ones(numel(idx),1).*iTrial;
-      y(end+1:end+numel(idx),:)       = thisy;
-      
-      %% add predictors to X, with lags if necessary
-      thisX = [];
-      for iPred = 1:numel(cfg.predList)
-        switch cfg.predList{iPred}
-          case {'tow_R','tow_L'}
-            if ~isempty(strfind(cfg.predList{iPred},'L'))
-              towers = logSumm.cuePos_L{trialidx(iTrial)};
-            else
-              towers = logSumm.cuePos_R{trialidx(iTrial)};
-            end
             
-            toweridx  = arrayfun(@(x)(find(taxis >= x,1,'first')),towers);
-            thisvec   = zeros(numel(idx),1);
-            thisvec(toweridx) = 1;
-            
-          case 'speed'
-            thisvec   = zeros(numel(idx),1);
-            for iT = 1:numel(thisvec)
-              iter        = find(logSumm.pos{trialidx(iTrial)}(:,2) >= taxis(iT),1,'first'): ...
-                            find(logSumm.pos{trialidx(iTrial)}(:,2) < taxis(iT+1),1,'last');
-              displ       = mean(sqrt(sum(logSumm.displ{trialidx(iTrial)}(iter,1:2).^2,2))); 
-              thisvec(iT) = displ / logSumm.frameRateVirmen;
-            end
-          
-          case 'd\theta/dt'
-            thisvec   = zeros(numel(idx),1);
-            for iT = 1:numel(thisvec)
-              iter        = find(logSumm.pos{trialidx(iTrial)}(:,2) >= taxis(iT),1,'first'): ...
-                            find(logSumm.pos{trialidx(iTrial)}(:,2) < taxis(iT+1),1,'last');
-              displ       = mean(logSumm.displ{trialidx(iTrial)}(iter,3)); 
-              thisvec(iT) = displ / logSumm.frameRateVirmen;
-            end
-            
-          case '\theta'
-            thisvec   = zeros(numel(idx),1);
-            for iT = 1:numel(thisvec)
-              iter        = find(logSumm.pos{trialidx(iTrial)}(:,2) >= taxis(iT),1,'first'): ...
-                            find(logSumm.pos{trialidx(iTrial)}(:,2) < taxis(iT+1),1,'last');
-              thisvec(iT) = mean(logSumm.pos{trialidx(iTrial)}(iter,3));
-            end
-          
-          case '\Delta_bins'
-            thisvec   = zeros(numel(idx),numel(cfg.evidenceBins)-1);
-            for iT = 1:size(thisvec,1)
-              thisev             = sum(logSumm.cuePos_R{trialidx(iTrial)} <= taxis(iT)) - ...
-                                   sum(logSumm.cuePos_L{trialidx(iTrial)} <= taxis(iT));
-              binidx             = find(cfg.evidenceBins <= thisev,1,'last');       
-              thisvec(iT,binidx) = 1;            
-            end
-            
-          case '\Delta'
-            thisvec   = zeros(numel(idx),1);
-            for iT = 1:numel(thisvec)
-              thisvec(iT) = sum(logSumm.cuePos_R{trialidx(iTrial)} <= taxis(iT)) - ...
-                            sum(logSumm.cuePos_L{trialidx(iTrial)} <= taxis(iT));
-            end
-          
-          case 'abs(\Delta)'
-            thisvec   = zeros(numel(idx),1);
-            for iT = 1:numel(thisvec)
-              thisvec(iT) = abs(sum(logSumm.cuePos_R{trialidx(iTrial)} <= taxis(iT)) - ...
-                                sum(logSumm.cuePos_L{trialidx(iTrial)} <= taxis(iT)));
-            end
-            
-          case 'y'
-            thisvec   = zeros(numel(idx),1);
-            for iT = 1:numel(thisvec)
-              iter        = find(logSumm.pos{trialidx(iTrial)}(:,2) >= taxis(iT),1,'first'): ...
-                            find(logSumm.pos{trialidx(iTrial)}(:,2) < taxis(iT+1),1,'last');
-              thisvec(iT) = mean(logSumm.pos{trialidx(iTrial)}(iter,2));
-            end
-            
-          case 'ch'
-            isLeft  = logSumm.choice(trialidx(iTrial)) == analysisParams.leftCode;
-            thisvec = ones(numel(idx),1) - 2.*ones(numel(idx),1).*isLeft;
-            
-          case 'prevch'
-            if trialidx(iTrial) == 1
-              thisvec = zeros(numel(idx),1);
-            else
-              isLeft  = logSumm.choice(trialidx(iTrial)-1) == analysisParams.leftCode;
-              thisvec = ones(numel(idx),1) - 2.*ones(numel(idx),1).*isLeft;
-            end
-            
-          case 'prevrw'
-            if trialidx(iTrial) == 1
-              thisvec = zeros(numel(idx),1);
-            else
-              wasRW   = logSumm.choice(trialidx(iTrial)-1) == logSumm.trialType(trialidx(iTrial)-1);
-              thisvec = ones(numel(idx),1) - 2.*ones(numel(idx),1).*wasRW;
-            end
-            
-          case 'rw'
-            error('rw not supported for regression in space')
-            
-          case 'ROI'
+          case 'auto'
             continue
         end
-        
+
         % add lags
-        nlags     = cfg.predLagCm{iPred} / mode(diff(taxis)); 
+        nlags     = round(cfg.predLagSec{iPred} / mode(diff(taxis)));
         lagct     = 1;
         ncols     = size(thisvec,2);
         vecs      = zeros(size(thisvec,1),(sum(nlags)+1)*ncols);
@@ -687,39 +560,185 @@ switch cfg.timeOrSpace
           else
             shiftvec = thisvec;
           end
-          
+
           vecs(:,(lagct-1)*ncols+1:lagct*ncols) = shiftvec;
           if iTrial == 1
             predLbls{end+1} = [cfg.predList{iPred} num2str(iLag)];
           end
           lagct = lagct+1;
         end
-        
+
         thisX(:,end+1:end+size(vecs,2)) = vecs;
       end
-      
+
       X(end+1:end+size(thisX,1),:) = thisX;
-      
+
+    end
+
+  case 'space'
+    for iTrial = 1:numel(trialidx)
+
+      idx     = 1:numel(cfg.posBins(1:end-1));
+      taxis   = cfg.posBins;
+      thisy   = squeeze(dffTrials(iTrial,idx,:));
+      trialID(end+1:end+numel(idx),:) = ones(numel(idx),1).*iTrial;
+      y(end+1:end+numel(idx),:)       = thisy;
+
+      %% add predictors to X, with lags if necessary
+      thisX = [];
+      for iPred = 1:numel(cfg.predList)
+        switch cfg.predList{iPred}
+          case {'tow_R','tow_L'}
+            if ~isempty(strfind(cfg.predList{iPred},'L'))
+              towers = logSumm.cuePos_L{trialidx(iTrial)};
+            else
+              towers = logSumm.cuePos_R{trialidx(iTrial)};
+            end
+
+            toweridx  = arrayfun(@(x)(find(taxis >= x,1,'first')),towers);
+            thisvec   = zeros(numel(idx),1);
+            thisvec(toweridx) = 1;
+
+          case 'speed'
+            thisvec   = zeros(numel(idx),1);
+            for iT = 1:numel(thisvec)
+              iter        = find(logSumm.pos{trialidx(iTrial)}(:,2) >= taxis(iT),1,'first'): ...
+                            find(logSumm.pos{trialidx(iTrial)}(:,2) < taxis(iT+1),1,'last');
+              displ       = mean(sqrt(sum(logSumm.displ{trialidx(iTrial)}(iter,1:2).^2,2)));
+              thisvec(iT) = displ / logSumm.frameRateVirmen;
+            end
+
+          case 'd\theta/dt'
+            thisvec   = zeros(numel(idx),1);
+            for iT = 1:numel(thisvec)
+              iter        = find(logSumm.pos{trialidx(iTrial)}(:,2) >= taxis(iT),1,'first'): ...
+                            find(logSumm.pos{trialidx(iTrial)}(:,2) < taxis(iT+1),1,'last');
+              displ       = mean(logSumm.displ{trialidx(iTrial)}(iter,3));
+              thisvec(iT) = displ / logSumm.frameRateVirmen;
+            end
+
+          case '\theta'
+            thisvec   = zeros(numel(idx),1);
+            for iT = 1:numel(thisvec)
+              iter        = find(logSumm.pos{trialidx(iTrial)}(:,2) >= taxis(iT),1,'first'): ...
+                            find(logSumm.pos{trialidx(iTrial)}(:,2) < taxis(iT+1),1,'last');
+              thisvec(iT) = mean(logSumm.pos{trialidx(iTrial)}(iter,3));
+            end
+
+          case '\Delta_bins'
+            thisvec   = zeros(numel(idx),numel(cfg.evidenceBins)-1);
+            for iT = 1:size(thisvec,1)
+              thisev             = sum(logSumm.cuePos_R{trialidx(iTrial)} <= taxis(iT)) - ...
+                                   sum(logSumm.cuePos_L{trialidx(iTrial)} <= taxis(iT));
+              binidx             = find(cfg.evidenceBins <= thisev,1,'last');
+              thisvec(iT,binidx) = 1;
+            end
+
+          case '\Delta'
+            thisvec   = zeros(numel(idx),1);
+            for iT = 1:numel(thisvec)
+              thisvec(iT) = sum(logSumm.cuePos_R{trialidx(iTrial)} <= taxis(iT)) - ...
+                            sum(logSumm.cuePos_L{trialidx(iTrial)} <= taxis(iT));
+            end
+
+          case 'abs(\Delta)'
+            thisvec   = zeros(numel(idx),1);
+            for iT = 1:numel(thisvec)
+              thisvec(iT) = abs(sum(logSumm.cuePos_R{trialidx(iTrial)} <= taxis(iT)) - ...
+                                sum(logSumm.cuePos_L{trialidx(iTrial)} <= taxis(iT)));
+            end
+
+          case 'y'
+            thisvec   = zeros(numel(idx),1);
+            for iT = 1:numel(thisvec)
+              iter        = find(logSumm.pos{trialidx(iTrial)}(:,2) >= taxis(iT),1,'first'): ...
+                            find(logSumm.pos{trialidx(iTrial)}(:,2) < taxis(iT+1),1,'last');
+              thisvec(iT) = mean(logSumm.pos{trialidx(iTrial)}(iter,2));
+            end
+
+          case 'ch'
+            isLeft  = logSumm.choice(trialidx(iTrial)) == analysisParams.leftCode;
+            thisvec = ones(numel(idx),1) - 2.*ones(numel(idx),1).*isLeft;
+
+          case 'prevch'
+            if trialidx(iTrial) == 1
+              thisvec = zeros(numel(idx),1);
+            else
+              isLeft  = logSumm.choice(trialidx(iTrial)-1) == analysisParams.leftCode;
+              thisvec = ones(numel(idx),1) - 2.*ones(numel(idx),1).*isLeft;
+            end
+
+          case 'prevrw'
+            if trialidx(iTrial) == 1
+              thisvec = zeros(numel(idx),1);
+            else
+              wasRW   = logSumm.choice(trialidx(iTrial)-1) == logSumm.trialType(trialidx(iTrial)-1);
+              thisvec = ones(numel(idx),1) - 2.*ones(numel(idx),1).*wasRW;
+            end
+
+          case 'rw'
+            error('rw not supported for regression in space')
+
+          case 'ROI'
+            continue
+            
+          case 'auto'
+            continue
+        end
+
+        % add lags
+        nlags     = round(cfg.predLagCm{iPred} / mode(diff(taxis)));
+        lagct     = 1;
+        ncols     = size(thisvec,2);
+        vecs      = zeros(size(thisvec,1),(sum(nlags)+1)*ncols);
+        for iLag = -nlags(1):nlags(2)
+          if iLag < 0
+            if strcmpi(cfg.predList{iPred},'auto'); continue; end
+            shiftvec = [thisvec(-iLag+1:end,:); zeros(abs(iLag),ncols)];
+          elseif iLag > 0
+            shiftvec = [zeros(abs(iLag),ncols); thisvec(1:end-iLag,:)];
+          else
+            if strcmpi(cfg.predList{iPred},'auto'); continue; end
+            shiftvec = thisvec;
+          end
+
+          vecs(:,(lagct-1)*ncols+1:lagct*ncols) = shiftvec;
+          if iTrial == 1
+            predLbls{end+1} = [cfg.predList{iPred} num2str(iLag)];
+          end
+          lagct = lagct+1;
+        end
+
+        thisX(:,end+1:end+size(vecs,2)) = vecs;
+      end
+
+      X(end+1:end+size(thisX,1),:) = thisX;
+
     end
 end
 
 %% add ROIs separately if necessary, in which case X is 3d (one per ROI)
-isROIpred = strcmpi(cfg.predList,'ROI');
-if sum(isROIpred) > 1
+isROIpred  = strcmpi(cfg.predList,'ROI');
+if sum(isROIpred) > 0
   baseX = X;
-  X     = zeros(size(X,1),size(X,2),size(y,2));
+
+  switch cfg.timeOrSpace
+    case 'time'
+        nlags     = cfg.predLagSec{isROIpred} / mode(diff(taxis));
+    case 'space'
+        nlags     = cfg.predLagCm{isROIpred} / mode(diff(taxis));
+  end
   for iROI = 1:size(y,2)
     thisX = baseX;
     ct    = 1;
     for iOther = setdiff(1:size(y,2),iROI)
       thisvec   = y(:,iOther);
       % add lags
-      nlags     = cfg.predLagSec{isROIpred} / mode(diff(taxis)); 
       lagct     = 1;
       vecs      = zeros(size(thisvec,1),sum(nlags)+1);
       for iLag = -nlags(1):nlags(2)
         if iLag < 0
-          shiftvec = [thisvec(-iLag+1:end); zeros(abs(iLag),1)];
+          shiftvec = [thisvec(-iLag+1:end,:); zeros(abs(iLag),ncols)];
         elseif iLag > 0
           shiftvec = [zeros(abs(iLag),1); thisvec(1:end-iLag)];
         else
@@ -732,13 +751,57 @@ if sum(isROIpred) > 1
         end
         lagct = lagct+1;
       end
+      thisX(:,end+1:end+size(vecs,2)) = vecs;
       ct = ct +1;
+    end  
+    if iROI == 1
+      X     = zeros(size(thisX,1),size(thisX,2),size(y,2));
     end
-    thisX(:,end+1:end+size(vecs,2)) = vecs;
     X(:,:,iROI) = thisX;
   end
 else
   X = repmat(X,[1 1 size(y,2)]);
+end
+
+%% add ROIs separately if necessary, in which case X is 3d (one per ROI)
+isAutoPred  = strcmpi(cfg.predList,'auto');
+if sum(isAutoPred) > 0
+  
+  switch cfg.timeOrSpace
+    case 'time'
+        nlags     = cfg.predLagSec{isAutoPred} / mode(diff(taxis));
+    case 'space'
+        nlags     = cfg.predLagCm{isAutoPred} / mode(diff(taxis));
+  end
+  Xauto = zeros(size(X,1),sum(nlags),size(y,2));
+  for iROI = 1:size(y,2)
+    thisX = [];
+    for iTrial = 1:numel(trialidx)
+      idx      = 1:numel(cfg.posBins(1:end-1));
+      thisvec  = squeeze(dffTrials(iTrial,idx,iROI))';
+      ncols    = size(thisvec,2);
+      vecs     = zeros(size(thisvec,1),sum(nlags)*ncols);
+      lagct    = 1;
+      for iLag = -nlags(1):nlags(2)
+        if iLag > 0
+          shiftvec = [zeros(abs(iLag),ncols); thisvec(1:end-iLag,:)];
+        else
+         continue
+        end
+
+        vecs(:,(lagct-1)*ncols+1:lagct*ncols) = shiftvec;
+        if iTrial == 1 && iROI == 1
+          predLbls{end+1} = sprintf('auto-%d',iLag);
+        end
+        lagct = lagct+1;
+      end
+
+      thisX(end+1:end+size(vecs,1),:) = vecs;
+    end
+    
+    Xauto(:,:,iROI) = thisX;
+  end
+  X = [X Xauto];
 end
 
 end
@@ -754,7 +817,7 @@ pseudoExp = struct([]);
 for iRun = 1:cfg.numCVSamples
   pseudoExp(iRun).NumTestSets = cfg.numCVFolds;
   iTrials                     = trials(randperm(nt));
-  
+
   for iFold = 1:cfg.numCVFolds
     testidx     = floor((iFold-1)*(1/cfg.numCVFolds))*nt+1:min([nt round(nt*iFold*(1/cfg.numCVFolds))]);
     trainTrials = iTrials(setdiff(1:nt,testidx));
@@ -770,17 +833,20 @@ end
 %% CONFIGURATION
 function cfg = populateCfg(cfg)
 if ~isfield(cfg,'trialType')
-  cfg(1).trialType     = 'all'; 
+  cfg(1).trialType     = 'all';
 end
 if ~isfield(cfg,'predList')
+  % cfg(1).predList     = {'tow_L','tow_R','\Delta','y','\theta', ...
+  %                        'd\theta/dt','speed','ch','prevch','prevrw'};
   cfg(1).predList     = {'tow_L','tow_R','\Delta','y','\theta', ...
-                         'd\theta/dt','speed','ch','prevch','prevrw'}; 
+                         'd\theta/dt','speed','ch','prevch','prevrw','ROI','auto'};
 end
 if ~isfield(cfg,'predLagSec')
-  cfg(1).predLagSec    = {[0 2],[0 2],[0 1],[0 0],[0 0],[1 1],[1 1],[0 0],[0 0],[0 0]}; 
+  cfg(1).predLagSec    = {[0 2],[0 2],[0 1],[0 0],[0 0],[1 1],[1 1],[0 0],[0 0],[0 0],[0 2],[0 0],[10 0]};
 end
 if ~isfield(cfg,'predLagCm')
-  cfg(1).predLagCm     = {[0 100],[0 100],[0 50],[0 0],[0 0],[30 30],[30 30],[0 0],[0 0],[0 0]}; 
+  % cfg(1).predLagCm     = {[0 100],[0 100],[0 50],[0 0],[0 0],[30 30],[30 30],[0 0],[0 0],[0 0]};
+  cfg(1).predLagCm     = {[0 100],[0 100],[0 50],[0 0],[0 0],[30 30],[30 30],[0 0],[0 0],[0 0],[0 0],[0 100]};
 end
 if ~isfield(cfg,'alignPoint')
   cfg(1).alignPoint    = 'cueStart';
@@ -789,10 +855,11 @@ if ~isfield(cfg,'timeOrSpace')
   cfg(1).timeOrSpace   = 'space';
 end
 if ~isfield(cfg,'posBins')
-  cfg(1).posBins       = 0:1:300; % in cm
+  % cfg(1).posBins       = 0:1:300; % in cm
+  cfg(1).posBins       = 0:5:300; % in cm
 end
 if ~isfield(cfg,'timeBins')
-  cfg(1).timeBins      = 0:0.1:60; % in sec 
+  cfg(1).timeBins      = 0:0.1:60; % in sec
 end
 if ~isfield(cfg,'evidenceBins')
   cfg(1).evidenceBins      = -14:4:14; % in delta towers
@@ -800,13 +867,13 @@ if ~isfield(cfg,'evidenceBins')
   cfg(1).evidenceBins(end) = 20;
 end
 if ~isfield(cfg,'zscoreFlag')
-  cfg(1).zscoreFlag    = true; 
+  cfg(1).zscoreFlag    = true;
 end
 if ~isfield(cfg,'diffFlag')
-  cfg(1).diffFlag      = false; 
+  cfg(1).diffFlag      = false;
 end
 if ~isfield(cfg,'plotFlag')
-  cfg(1).plotFlag      = true; 
+  cfg(1).plotFlag      = false;
 end
 if ~isfield(cfg,'method')
   cfg(1).method        = 'ridge'; % ridge or lasso (if the latter setting l2penalty to true will do elastic net)
@@ -829,13 +896,13 @@ if ~isfield(cfg,'numCVFolds')
   cfg(1).numCVFolds    = 3;
 end
 if ~isfield(cfg,'numCVSamples')
-  cfg(1).numCVSamples  = 70;
+  cfg(1).numCVSamples  = 10;%70;
 end
 if ~isfield(cfg,'numCVSamplesShuffle')
   cfg(1).numCVSamplesShuffle = 5;
 end
 if ~isfield(cfg,'numShuffles')
-  cfg(1).numShuffles   = 10;
+  cfg(1).numShuffles   = 2;%10;
 end
 if ~isfield(cfg,'confidLevel')
   cfg(1).confidLevel   = normcdf([-1 1], 0, 1);
