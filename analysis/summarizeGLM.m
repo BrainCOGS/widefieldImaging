@@ -1,4 +1,4 @@
-function glmSumm = summarizeGLM(mice,spockFlag,cfg,concatSessFlag)
+function glmSumm = summarizeGLM(mice,spockFlag,cfg,concatSessFlag,visGuideFlag,autoRegrFlag)
 
 % glmSumm = summarizeGLM(mice,spockFlag,cfg,concatSessFlag)
 %           mice: cell array with mouse name list
@@ -12,12 +12,20 @@ if nargin < 1 || isempty(mice);      mice      = {'ai2';'ai3';'ai5';'ai7';'ai9';
 if nargin < 2 || isempty(spockFlag); spockFlag = true;                           end
 if nargin < 3;                       cfg       = struct([]);                     end
 if nargin < 4;                       concatSessFlag = false;                     end
+if nargin < 5;                       visGuideFlag   = false;                     end
+if nargin < 6;                       autoRegrFlag   = false;                     end
 
 cfg                = populateCfg(cfg);
 cfg.concatSessFlag = concatSessFlag;
 fn                 = sprintf('dffGLM_%s_%s',cfg.timeOrSpace,cfg.whichMethod);
 if cfg.ROIflag
   fn = [fn '_ROI'];
+end
+if visGuideFlag
+  fn = [fn '_visGuide'];
+end
+if autoRegrFlag
+  fn = [fn '_corr_autoRegr'];
 end
 if cfg.concatSessFlag
   fn = [fn '_concatSess.mat'];
@@ -49,6 +57,7 @@ for iMouse = 1:numel(mice)
     fprintf('.')
     cd(recls{iMouse}{iRec})
     load(fn,'dffFit')
+    if ~isfield(dffFit,'ROIlbl'); warning(sprintf('outdated rec: rerun %s',pwd)); end
     glmSumm.mouse(iMouse).accuracy(iRec,:)         = dffFit.accuracy;
     glmSumm.mouse(iMouse).accuracy_isSig(iRec,:)   = dffFit.isSig;
     glmSumm.mouse(iMouse).accuracy_shuffle(iRec,:) = nanmean(dffFit.shuffle.accuracy);
@@ -154,6 +163,9 @@ end
 if visGuideFlag
   fn = [fn '_visGuide'];
 end
+if autoRegrFlag
+  fn = [fn '_corr_autoRegr'];
+end
 save(fn,'glmSumm')
 
 %% plot
@@ -204,6 +216,7 @@ if cfg.ROIflag
     end
     
     wf.applyAxisDefaults(gca,'k'); axis tight
+%     if iPred == 1; legend(ROIlbl,'location','southoutside','position',[.01 .5 .12 .3]); end
   end
   
   if sum(strcmpi(glmSumm.glmCfg.predList,'ROI')) > 0
